@@ -1,0 +1,36 @@
+{
+  description = "Go development environment";
+
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    utils.url = "github:numtide/flake-utils";
+  };
+
+  outputs = {
+    self,
+    nixpkgs,
+    utils,
+  }:
+    utils.lib.eachDefaultSystem (system: let
+      pkgs = import nixpkgs {inherit system;};
+    in {
+      devShells.default = pkgs.mkShell {
+        buildInputs = with pkgs; [
+          # Go Toolchain
+          go
+          # LSP & Tooling
+          gopls
+          gotools
+          golangci-lint
+          delve
+        ];
+
+        shellHook = ''
+          echo "--- Go Dev Shell Loaded ---"
+          go version
+          export GOPATH=$HOME/go
+          export PATH=$GOPATH/bin:$PATH
+        '';
+      };
+    });
+}
