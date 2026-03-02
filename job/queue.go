@@ -13,8 +13,7 @@ var (
 )
 
 type Queue struct {
-	buf  chan *Job
-	done chan struct{}
+	buf chan *Job
 }
 
 // TODO: maybe add context later
@@ -24,8 +23,7 @@ func NewQueue(size int) (*Queue, error) {
 	}
 
 	queue := &Queue{
-		buf:  make(chan *Job, size),
-		done: make(chan struct{}),
+		buf: make(chan *Job, size),
 	}
 
 	return queue, nil
@@ -34,8 +32,6 @@ func NewQueue(size int) (*Queue, error) {
 func (q *Queue) Enqueue(job *Job) error {
 
 	select {
-	case <-q.done:
-		return ErrClosed
 	case q.buf <- job:
 		return nil
 	default:
@@ -44,18 +40,14 @@ func (q *Queue) Enqueue(job *Job) error {
 }
 
 func (q *Queue) Dequeue() (*Job, error) {
-	select {
-	case <-q.done:
-		return nil, ErrClosed
-	case job, ok := <-q.buf:
-		if !ok {
-			return nil, ErrQueueEmpty
-		}
-		return job, nil
+	job, ok := <-q.buf
+	if !ok {
+		return nil, ErrQueueEmpty
 	}
+	return job, nil
 
 }
 
 func (q *Queue) Close() {
-	close(q.done)
+	close(q.buf)
 }
