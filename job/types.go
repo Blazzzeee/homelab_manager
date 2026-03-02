@@ -57,11 +57,6 @@ type Runner interface {
 	Shutdown(ctx context.Context) error
 }
 
-// The JobId will be the key ta the Job itself
-type JobStore struct {
-	buf map[ID]*Job
-}
-
 // Just takes a job and executes it blindly
 // the context should provide other things like cancellation
 type Executor interface {
