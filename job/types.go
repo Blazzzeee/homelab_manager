@@ -61,5 +61,17 @@ type Runner interface {
 // the context should provide other things like cancellation
 type Executor interface {
 	// gives back process id that will form an association with the job itself
-	Dispatch(ctx context.Context, job *Job) error
+	Dispatch(ctx context.Context, job *Job) <-chan WorkerResult
+}
+
+type Store interface {
+	Get(id ID) (*Job, error)
+	Push(job *Job) error
+	Pop(id ID) (*Job, error)
+}
+
+type runner struct {
+	store  Store
+	queue  Queue
+	worker WorkerPool
 }
