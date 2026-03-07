@@ -2,43 +2,41 @@ package job
 
 import (
 	"context"
+	"fmt"
+	"os/exec"
 	"sync"
-	"time"
 )
 
-type Task struct {
-	// The task has direct association to lifecycle of job
-	// to simplify query we link them with same job id
-	Id      ID
-	Argv    []string
-	CWD     string
-	Timeout time.Duration
-}
+const DEFAULT_WORKERS = 18
 
 // the pool only recieves singular view
 // of what to execute via Dispatch API
+// the workerpool owner should listen over the
+// Results channel to recieve processed jobs
 type WorkerPool struct {
 	maxWorkers int
-	tasks      chan Task
-	results    chan WorkerResult
+	jobs       chan *Job
+	Results    chan *WorkerResult
 	wg         sync.WaitGroup
 	stopOnce   sync.Once
-	quit       chan struct{}
 }
 
 type WorkerResult struct {
-	JobID    ID
-	Exitcode int
-	Err      error
+	JobID  ID
+	Err    error
+	Output string
 }
 
 func NewWorkerPool(maxWorkers int) *WorkerPool {
+	if maxWorkers <= 0 {
+		fmt.Println("WARN: Atleast one worker needed , using fallback: ", DEFAULT_WORKERS)
+		maxWorkers = DEFAULT_WORKERS
+	}
 	return &WorkerPool{
 		maxWorkers: maxWorkers,
 		// this shouldnt be unbounded
-		tasks:   make(chan Task),
-		results: make(chan WorkerResult),
-		quit:    make(chan struct{}),
+		jobs:    make(chan *Job, maxWorkers*2),
+		Results: make(chan *WorkerResult, maxWorkers),
 	}
 
 }
@@ -53,34 +51,66 @@ func (wp *WorkerPool) Start() {
 }
 
 // This will be visible to the job queue
-func (wp *WorkerPool) Dispatch(ctx context.Context, task *Task) {
+func (wp *WorkerPool) Dispatch(ctx context.Context, job *Job) {
 
+	// TOOD: use context for cancellation and timeouts
 	// Send the task to be picked up by some worker
-	wp.tasks <- *task
+	wp.jobs <- job
 }
 
-// closes resources on nodes
-func (wp *WorkerPool) Shutdown(worker *WorkerPool) {
+// closes resources on all nodes
+func (wp *WorkerPool) Shutdown() {
 	wp.stopOnce.Do(func() {
-		close(wp.tasks)
-		close(wp.quit)
+		close(wp.jobs)
 	})
 	wp.wg.Wait()
+	close(wp.Results)
 }
 
+// This is the loop which executes incoming tasks from the tasks channel
 func (wp *WorkerPool) WorkerLoop(id int) {
 	defer wp.wg.Done()
 	for {
-		select {
-		case task := <-wp.tasks:
-			wp.execute(&task)
-		case <-wp.quit:
+		task, ok := <-wp.jobs
+		if !ok {
+			// TODO: error logs
 			return
 		}
+		wp.execute(task)
 
 	}
 }
 
-func (wp *WorkerPool) execute(task *Task) {
+// Shell commands are launched from here
+//
+// This call is a blocking call ,
+// meaning that the number of commands that
+// can run at a time depends on the number of go routines
+func (wp *WorkerPool) execute(job *Job) {
+
+	if len(job.Cmd) == 0 {
+		wp.Results <- &WorkerResult{
+			JobID:  job.Id,
+			Err:    fmt.Errorf("empty command"),
+			Output: "",
+		}
+		return
+	}
+
+	command := job.Cmd[0]
+	args := job.Cmd[1:]
+
+	// execute command safely
+	cmd := exec.Command(command, args...)
+
+	output, err := cmd.CombinedOutput()
+
+	res := &WorkerResult{
+		JobID:  job.Id,
+		Err:    err,
+		Output: string(output),
+	}
+
+	wp.Results <- res
 
 }
