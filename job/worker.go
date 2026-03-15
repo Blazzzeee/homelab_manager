@@ -15,10 +15,11 @@ const DEFAULT_WORKERS = 18
 // Results channel to recieve processed jobs
 type WorkerPool struct {
 	maxWorkers int
-	jobs       chan *Job
-	Results    chan *WorkerResult
-	wg         sync.WaitGroup
-	stopOnce   sync.Once
+	// Recives from the global queue
+	jobs     <-chan *Job
+	Results  chan *WorkerResult
+	wg       sync.WaitGroup
+	stopOnce sync.Once
 }
 
 type WorkerResult struct {
@@ -27,15 +28,14 @@ type WorkerResult struct {
 	Output string
 }
 
-func NewWorkerPool(maxWorkers int) *WorkerPool {
+func NewWorker(maxWorkers int) *WorkerPool {
 	if maxWorkers <= 0 {
 		fmt.Println("WARN: Atleast one worker needed , using fallback: ", DEFAULT_WORKERS)
 		maxWorkers = DEFAULT_WORKERS
 	}
 	return &WorkerPool{
 		maxWorkers: maxWorkers,
-		// this shouldnt be unbounded
-		jobs:    make(chan *Job, maxWorkers*2),
+		// just meant for go routine buffering by the time worker picks it up
 		Results: make(chan *WorkerResult, maxWorkers),
 	}
 
@@ -50,22 +50,14 @@ func (wp *WorkerPool) Start() {
 	}
 }
 
-// This will be visible to the job queue
-func (wp *WorkerPool) Dispatch(ctx context.Context, job *Job) {
-
-	// TOOD: use context for cancellation and timeouts
-	// Send the task to be picked up by some worker
-	wp.jobs <- job
-}
-
-// closes resources on all nodes
-func (wp *WorkerPool) Shutdown() {
-	wp.stopOnce.Do(func() {
-		close(wp.jobs)
-	})
-	wp.wg.Wait()
-	close(wp.Results)
-}
+// // closes resources on all nodes
+// func (wp *WorkerPool) Shutdown() {
+// 	wp.stopOnce.Do(func() {
+// 		close(wp.jobs)
+// 	})
+// 	wp.wg.Wait()
+// 	close(wp.Results)
+// }
 
 // This is the loop which executes incoming tasks from the tasks channel
 func (wp *WorkerPool) WorkerLoop(id int) {
@@ -87,6 +79,11 @@ func (wp *WorkerPool) WorkerLoop(id int) {
 // meaning that the number of commands that
 // can run at a time depends on the number of go routines
 func (wp *WorkerPool) execute(job *Job) {
+
+	// skip timed out jobs and cancelled jobs
+	if job.State == StateCancelled || job.State == StateTimeout {
+		return
+	}
 
 	if len(job.Cmd) == 0 {
 		wp.Results <- &WorkerResult{
