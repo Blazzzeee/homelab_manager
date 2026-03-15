@@ -18,9 +18,10 @@ type Queue struct {
 }
 
 // TODO: maybe add context later
-func NewQueue(size int) (*Queue, error) {
+func NewQueue(size int) *Queue {
 	if size <= 0 {
-		return nil, fmt.Errorf("queue size cannot be negative")
+		fmt.Println("queue size cannot be negative")
+		return nil
 	}
 
 	queue := &Queue{
@@ -28,7 +29,7 @@ func NewQueue(size int) (*Queue, error) {
 		done: make(chan struct{}),
 	}
 
-	return queue, nil
+	return queue
 }
 
 func (q *Queue) Enqueue(job *Job) error {

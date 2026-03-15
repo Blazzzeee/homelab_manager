@@ -2,6 +2,7 @@ package job
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 )
 
@@ -21,7 +22,7 @@ type JobStore struct {
 	mu  sync.RWMutex
 }
 
-func New() *JobStore {
+func NewStore() *JobStore {
 	return &JobStore{
 		make(map[ID]*Job),
 		sync.RWMutex{},
@@ -89,4 +90,42 @@ func (store *JobStore) Pop(id ID) (*Job, error) {
 	delete(store.buf, id)
 
 	return j, nil
+}
+
+// Return sall jobs in the storw
+func (store *JobStore) GetAll() []*Job {
+	store.mu.RLock()
+	defer store.mu.RUnlock()
+
+	jobs := make([]*Job, 0, len(store.buf))
+
+	for _, val := range store.buf {
+		jobs = append(jobs, val)
+	}
+
+	return jobs
+
+}
+
+// Atomically updates the store with the passed callback
+// the updates should be tiny from here or use something async
+// if they are large since this will block the whole store from reads and writes
+func (store *JobStore) Update(id ID, callback func(j *Job) error) error {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	job, ok := store.buf[id]
+
+	if !ok {
+		return ErrJobNotFound
+	}
+
+	// allow requested update
+	err := callback(job)
+
+	if err != nil {
+		return fmt.Errorf("job update failed: %w", err)
+	}
+
+	return nil
 }
